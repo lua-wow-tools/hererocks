@@ -2187,6 +2187,54 @@ class RaptorJIT(LuaJIT):
 
             copy_dir("jit", jitlib_path)
 
+class Elune(Program):
+    name = "elune"
+    title = "Elune"
+    default_repo = "https://github.com/meorawr/elune"
+    versions = []
+    translations = {}
+
+    def set_identifiers(self):
+        super(Elune, self).set_identifiers()
+        self.identifiers["c flags"] = opts.cflags or ""
+
+    # TODO copied from Lua class
+    def build(self):
+        if opts.builds and self.source != "local":
+            self.cached_build_path = os.path.join(opts.builds,
+                                                  hash_identifiers(self.identifiers))
+
+            if os.path.exists(self.cached_build_path):
+                print("Building " + self.title + self.version_suffix + " (cached)")
+                os.chdir(self.cached_build_path)
+                return
+        else:
+            self.cached_build_path = None
+
+        self.fetch()
+        print("Building " + self.title + self.version_suffix)
+        self.make()
+
+        if self.cached_build_path is not None:
+            copy_dir(".", self.cached_build_path)
+
+    # TODO copied from Lua class
+    def install(self):
+        print("Installing " + self.title + self.version_suffix)
+        self.make_install()
+
+    def make(self):
+        run([
+            "cmake", "--preset", "linux",
+            "-DLUA_ROOT=" + opts.location,
+            "-DLUA_OUTPUT_NAME=lua",
+            "-DLUAC_OUTPUT_NAME=luac",
+        ])
+        run(["cmake", "--build", "--preset", "linux"])
+
+    def make_install(self):
+        run(["cmake", "--install", "build/linux", "--prefix", opts.location])
+
 class LuaRocks(Program):
     name = "luarocks"
     title = "LuaRocks"
@@ -2359,7 +2407,8 @@ class LuaRocks(Program):
         self.lua_identifiers = self.all_identifiers.get("lua",
                                                         self.all_identifiers.get("LuaJIT",
                                                                                  self.all_identifiers.get("moonjit",
-                                                                                                          self.all_identifiers.get("raptorjit"))))
+                                                                                                          self.all_identifiers.get("raptorjit",
+                                                                                                                                   self.all_identifiers.get("elune")))))
 
         if self.lua_identifiers is None:
             sys.exit("Error: can't install LuaRocks: Lua is not present in {}".format(opts.location))
@@ -2712,6 +2761,15 @@ def install_programs(vs_already_set_up):
 
         os.chdir(start_dir)
 
+    if opts.elune:
+        if "lua" in identifiers:
+            del identifiers["lua"]
+
+        if Elune(opts.elune).update_identifiers(identifiers):
+            save_installed_identifiers(identifiers)
+
+        os.chdir(start_dir)
+
     if opts.luarocks:
         if LuaRocks(opts.luarocks).update_identifiers(identifiers):
             save_installed_identifiers(identifiers)
@@ -2728,7 +2786,7 @@ def show_location():
         if all_identifiers:
             print("Programs installed in {}:".format(opts.location))
 
-            for program in [RioLua, LuaJIT, LuaRocks]:
+            for program in [RioLua, LuaJIT, Elune, LuaRocks]:
                 if program.name in all_identifiers:
                     show_identifiers(all_identifiers[program.name])
         else:
@@ -2776,6 +2834,10 @@ def main(argv=None):
         "Versions 1.0.0 - 1.0.3 are supported. "
         "'latest' and '^' are aliases for to 1.0.3. "
         "Default git repo is https://github.com/raptorjit/raptorjit. ")
+    parser.add_argument(
+        "--elune", help="Version of Elune to install. "
+        "Version can be specified in the same way as for standard Lua. "
+        "Default git repo is https://github.com/meorawr/elune. ")
     parser.add_argument(
         "-r", "--luarocks", help="Version of LuaRocks to install. "
         "Version can be specified in the same way as for standard Lua. "
@@ -2856,9 +2918,11 @@ def main(argv=None):
         nb_lua += 1
     if opts.raptorjit:
         nb_lua += 1
+    if opts.elune:
+        nb_lua += 1
 
     if nb_lua == 0 and not opts.luarocks and not opts.show:
-        parser.error("a version of Lua, LuaJIT, moonjit, RaptorJIT or LuaRocks needs to be specified unless --show is used")
+        parser.error("a version of Lua, LuaJIT, moonjit, RaptorJIT, Elune or LuaRocks needs to be specified unless --show is used")
 
     if nb_lua > 1:
         parser.error("can't install more than one Lua interpreter")
